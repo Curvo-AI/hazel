@@ -1,0 +1,17 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "hazel-update-server"
+resolve_s3 = true
+s3_prefix = "hazel-update-server"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+  "SSMParameterPrefix=/sst/hazel/production/secrets",
+  "Pre=",
+  "Interval=15"
+]
+
+[default.build.parameters]
+cached = true
+parallel = true

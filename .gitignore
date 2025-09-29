@@ -3,3 +3,8 @@ coverage
 
 # dependencies
 node_modules
+
+# AWS SAM
+.aws-sam/
+samconfig.toml
+env.json

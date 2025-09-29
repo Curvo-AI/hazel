@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Hazel - Lightweight update server for Electron apps
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+
+Parameters:
+  SSMParameterPrefix:
+    Type: String
+    Default: '/sst/hazel/production/secrets'
+    Description: SSM parameter prefix for configuration values
+  Pre:
+    Type: String
+    Default: ''
+    Description: Set to '1' to cache only pre-releases (optional, can use SSM instead)
+  Interval:
+    Type: String
+    Default: '15'
+    Description: Cache refresh interval in minutes
+
+Resources:
+  HazelFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      DockerTag: nodejs16-v1
+      DockerContext: .
+      Dockerfile: Dockerfile
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          PORT: 8080
+          PRE: !Ref Pre
+          INTERVAL: !Ref Interval
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ssm:GetParameters
+                - ssm:GetParameter
+              Resource:
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SSMParameterPrefix}/*'
+      Events:
+        HttpApiEvent:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+        RootHttpApiEvent:
+          Type: HttpApi
+          Properties:
+            Path: /
+            Method: ANY
+
+Outputs:
+  HazelUrl:
+    Description: URL for Hazel update server
+    Value: !Sub 'https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/'
+  HazelFunctionArn:
+    Description: Hazel Lambda Function ARN
+    Value: !GetAtt HazelFunction.Arn
+  HazelApiId:
+    Description: HTTP API Gateway ID
+    Value: !Ref ServerlessHttpApi

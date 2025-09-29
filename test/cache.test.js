@@ -17,11 +17,16 @@ describe('Cache', () => {
     }).toThrow(/REPOSITORY/)
   })
 
-  it('should throw when token is defined and url is not', () => {
-    expect(() => {
-      const config = { account: 'zeit', repository: 'hyper', token: 'abc' }
-      new Cache(config)
-    }).toThrow(/URL/)
+  it('should warn when token is defined and url is not', () => {
+    const originalWarn = console.warn
+    let warnCalled = false
+    console.warn = () => {
+      warnCalled = true
+    }
+    const config = { account: 'zeit', repository: 'hyper', token: 'abc' }
+    new Cache(config)
+    console.warn = originalWarn
+    expect(warnCalled).toBe(true)
   })
 
   it('should run without errors', () => {
