@@ -11,6 +11,7 @@
     "aws:build": "sam build",
     "aws:deploy": "sam deploy --guided",
     "aws:deploy:fast": "sam build && sam deploy",
+    "aws:deploy:now": "sam build && sam deploy --no-confirm-changeset",
     "aws:local": "sam local start-api --env-vars env.json",
     "aws:logs": "sam logs -n HazelFunction --stack-name hazel-update-server --tail"
   },
