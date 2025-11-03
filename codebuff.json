@@ -1,0 +1,18 @@
+{
+  "description": "Template configuration for this project. See https://www.codebuff.com/config for all options.",
+  "startupProcesses": [
+    {
+      "name": "dev",
+      "command": "yarn dev:local",
+      "stdoutFile": "logs/dev.log"
+    }
+  ],
+  "fileChangeHooks": [
+    {
+      "name": "lint",
+      "command": "yarn test",
+      "filePattern": "**/*.js"
+    }
+  ],
+  "maxAgentSteps": 25
+}
