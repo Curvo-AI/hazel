@@ -32,8 +32,9 @@ Lightweight update server for Electron apps. Pulls releases from GitHub, caches 
 - Stream name is everything after first hyphen in tag
 - Clients specify stream via query param: `?stream=uat`
 - Default stream is `production` if not specified
-- All streams cached simultaneously from single GitHub API call
+- All streams cached simultaneously with pagination (fetches all releases)
 - Overview page shows stream selector dropdown
+- Pagination ensures old stream releases aren't missed in repos with many releases
 
 ## Development
 - Local dev: `yarn dev:local` or `vercel dev`
