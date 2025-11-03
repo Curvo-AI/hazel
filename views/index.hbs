@@ -53,6 +53,37 @@
         font-size: 18px;
       }
 
+      .stream-selector {
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .stream-selector label {
+        font-size: 14px;
+        color: gray;
+      }
+
+      .stream-selector select {
+        background: #1a1a1a;
+        color: white;
+        border: 1px solid #333;
+        border-radius: 4px;
+        padding: 6px 10px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      .stream-selector select:hover {
+        border-color: #ff0387;
+      }
+
+      .stream-selector select:focus {
+        outline: none;
+        border-color: #ff0387;
+      }
+
       .item {
         display: flex;
         align-items: center;
@@ -130,6 +161,19 @@
             <div id="release">{{account}}/<span id="repo">{{repository}}</span></div>
             <div id="date">{{date}}</div>
           </header>
+
+          {{#if availableStreams}}
+          {{#if availableStreams.length}}
+          <div class="stream-selector">
+            <label>Deployment Stream:</label>
+            <select id="streamSelect" onchange="window.location.search='?stream='+this.value">
+              {{#each availableStreams}}
+                <option value="{{this}}" {{#if (eq this ../currentStream)}}selected{{/if}}>{{this}}</option>
+              {{/each}}
+            </select>
+          </div>
+          {{/if}}
+          {{/if}}
 
           <div id="list">
             {{#each files}}

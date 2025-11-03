@@ -51,6 +51,56 @@ The following environment variables can be used optionally:
 - `TOKEN`: Your GitHub token (for private repos)
 - `URL`: The server's URL (for private repos - when running on [Vercel](https://vercel.com), this field is filled with the URL of the deployment automatically)
 
+## Deployment Streams
+
+Hazel supports multiple deployment streams (production, UAT, staging, etc.) using tag-based filtering. This allows you to maintain separate update channels for different user groups.
+
+### Tagging Releases
+
+Tag your GitHub releases with stream suffixes:
+
+- **Production**: `v1.0.0` or `v1.0.0-production` (default stream)
+- **UAT**: `v1.0.0-uat`
+- **Staging**: `v1.0.0-staging`
+- **Custom**: `v1.0.0-{your-stream-name}`
+
+The stream name is everything after the first hyphen in the tag. Releases without a suffix (or with `-production`) are part of the production stream.
+
+### Client Configuration
+
+Clients specify their stream using the `stream` query parameter:
+
+```js
+const { app, autoUpdater } = require('electron')
+
+const server = '<your-hazel-deployment-url>'
+const stream = process.env.UPDATE_STREAM || 'production'
+const url = `${server}/update/${process.platform}/${app.getVersion()}?stream=${stream}`
+
+autoUpdater.setFeedURL({ url })
+```
+
+Users can control which stream they receive updates from via an environment variable:
+
+```bash
+# Production users (default)
+./your-app
+
+# UAT testers
+UPDATE_STREAM=uat ./your-app
+
+# Staging users
+UPDATE_STREAM=staging ./your-app
+```
+
+### How It Works
+
+- Hazel caches all streams simultaneously from a single GitHub API call
+- Each stream maintains its own latest release
+- The overview page (`/`) shows a dropdown to switch between available streams
+- All routes support the `?stream=` query parameter
+- Backward compatible: existing clients without `?stream=` get the production stream
+
 ## Statistics
 
 Since Hazel routes all the traffic for downloading the actual application files to [GitHub Releases](https://help.github.com/articles/creating-releases/), you can use their API to determine the download count for a certain release.
