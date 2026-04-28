@@ -51,6 +51,33 @@ The following environment variables can be used optionally:
 - `TOKEN`: Your GitHub token (for private repos)
 - `URL`: The server's URL (for private repos - when running on [Vercel](https://vercel.com), this field is filled with the URL of the deployment automatically)
 
+## Virtual Streams
+
+Hazel can serve multiple release streams from one GitHub repository. It selects the
+stream from the GitHub release tag suffix:
+
+- `v1.2.3` serves production.
+- `v1.2.3-production` serves production.
+- `v1.2.3-uat` serves `uat`.
+- `v1.2.3-whitelabel-sv` serves `whitelabel-sv`.
+
+Clients can select a stream explicitly with the `stream` query parameter. Explicit
+query selection takes precedence over inference from the client version:
+
+```js
+const url = `${server}/update/${process.platform}/${app.getVersion()}?stream=uat`
+```
+
+When the query parameter is omitted, Hazel infers the stream from the current client
+version:
+
+```js
+const url = `${server}/update/${process.platform}/${app.getVersion()}`
+```
+
+A client running `1.2.3-uat` checks `uat`. A client running `1.2.3` checks
+production.
+
 ## Statistics
 
 Since Hazel routes all the traffic for downloading the actual application files to [GitHub Releases](https://help.github.com/articles/creating-releases/), you can use their API to determine the download count for a certain release.
@@ -79,6 +106,9 @@ If the cache isn't filled yet or doesn't contain a download link for the specifi
 
 Checks if there is an update available by reading from the cache.
 
+Virtual streams can be selected with `?stream=...` or inferred from the version
+suffix. For example, `/update/darwin/1.2.3-uat` checks `uat`.
+
 If the latest version of the application wasn't yet pulled from [GitHub Releases](https://help.github.com/articles/creating-releases/), it will return the `204` status code. The same happens if the latest release doesn't contain a file for the specified platform.
 
 ### /update/win32/:version/RELEASES
@@ -86,6 +116,9 @@ If the latest version of the application wasn't yet pulled from [GitHub Releases
 This endpoint was specifically crafted for the Windows platform (called "win32" [in Node.js](https://nodejs.org/api/process.html#process_process_platform)).
 
 Since the [Windows version](https://github.com/Squirrel/Squirrel.Windows) of Squirrel (the software that powers auto updates inside [Electron](https://www.electronjs.org)) requires access to a file named "RELEASES" when checking for updates, this endpoint will respond with a cached version of the file that contains a download link to a `.nupkg` file (the application update).
+
+It uses the same stream resolution as `/update/:platform/:version`. For example,
+`/update/win32/1.2.3-uat/RELEASES` serves the UAT manifest.
 
 ## Programmatic Usage
 
