@@ -199,4 +199,28 @@ describe('Stream-aware routes', () => {
       url: 'https://updates.example.com/download/darwin?update=true'
     })
   })
+
+  it('does not update unsuffixed clients for production-suffixed tags', async () => {
+    const cache = createCache({
+      production: createLatest(
+        '1.0.0-production',
+        'https://example.com/prod.zip'
+      )
+    })
+    const routes = createRoutesForCache(cache)
+    const req = {
+      headers: {},
+      params: {
+        platform: 'darwin',
+        version: '1.0.0'
+      },
+      url: '/update/darwin/1.0.0'
+    }
+    const res = createResponse()
+
+    await routes.update(req, res)
+
+    expect(cache.calls).toEqual(['production'])
+    expect(res.statusCode).toBe(204)
+  })
 })

@@ -1,5 +1,5 @@
 /* eslint-disable no-new */
-/* global describe, it, expect, jest */
+/* global afterEach, describe, it, expect, jest */
 const Cache = require('../lib/cache')
 
 describe('Cache', () => {
@@ -189,5 +189,21 @@ describe('stream-aware Cache', () => {
     expect(cache.latest).toEqual({})
     expect(cache.latestByStream).toEqual({})
     expect(typeof cache.lastUpdate).toBe('number')
+  })
+
+  it('caches streams found on later GitHub release pages', async () => {
+    const firstPage = Array.from({ length: 100 }, (value, index) => {
+      return release(`3.0.${index}`, '2024-04-01T00:00:00Z')
+    })
+    const { Cache, fetch } = loadMockedCache([
+      firstPage,
+      [release('4.0.0-uat', '2024-05-01T00:00:00Z')]
+    ])
+    const cache = new Cache({ account: 'zeit', repository: 'hyper' })
+
+    const uat = await cache.loadCacheForStream('uat')
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(uat.version).toBe('4.0.0-uat')
   })
 })
