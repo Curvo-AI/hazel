@@ -223,4 +223,26 @@ describe('Stream-aware routes', () => {
     expect(cache.calls).toEqual(['production'])
     expect(res.statusCode).toBe(204)
   })
+
+  it('does not update unsuffixed clients for virtual-stream tags', async () => {
+    const cache = createCache({
+      production: createLatest('1.2.4', 'https://example.com/prod.zip'),
+      'sv-cc': createLatest('v1.2.4-sv-cc', 'https://example.com/sv-cc.zip')
+    })
+    const routes = createRoutesForCache(cache)
+    const req = {
+      headers: {},
+      params: {
+        platform: 'darwin',
+        version: '1.2.4'
+      },
+      url: '/update/darwin/1.2.4?stream=sv-cc'
+    }
+    const res = createResponse()
+
+    await routes.update(req, res)
+
+    expect(cache.calls).toEqual(['sv-cc'])
+    expect(res.statusCode).toBe(204)
+  })
 })
