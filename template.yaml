@@ -35,6 +35,7 @@ Resources:
       Environment:
         Variables:
           PORT: 8080
+          SSM_PARAMETER_PREFIX: !Ref SSMParameterPrefix
           PRE: !Ref Pre
           INTERVAL: !Ref Interval
       Policies:
