@@ -12,7 +12,9 @@
     "aws:deploy:fast": "sam build && sam deploy",
     "aws:deploy:now": "sam build && sam deploy --no-confirm-changeset",
     "aws:local": "sam local start-api --env-vars env.json",
-    "aws:logs": "sam logs -n HazelFunction --stack-name hazel-update-server --tail"
+    "aws:logs": "sam logs -n HazelFunction --stack-name hazel-update-server --tail",
+    "e2e": "bash e2e/run.sh",
+    "e2e:parity": "bash e2e/run.sh parity"
   },
   "license": "MIT",
   "repository": "vercel/hazel",

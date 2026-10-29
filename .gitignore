@@ -10,3 +10,7 @@ samconfig.toml
 env.json
 
 .vscode
+
+# E2E output
+e2e/certs/
+e2e/*.json
