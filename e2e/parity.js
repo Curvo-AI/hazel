@@ -7,6 +7,11 @@ const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
 
+// run.sh gives every Docker resource of a run this name prefix and label, so
+// cleanup only ever touches resources the run created
+const RUN = process.env.HAZEL_E2E_RUN || `hazel-e2e-${process.pid}`
+const LABEL = ['--label', `hazel-e2e.run=${RUN}`]
+const CONTAINER = `${RUN}-parity`
 const PROD = 'https://lb1xhk0l7l.execute-api.eu-west-2.amazonaws.com'
 const PORT = 18200
 const CANDIDATE = (process.env.CANDIDATE || '').replace(/\/$/, '')
@@ -83,11 +88,10 @@ const get = async (base, route, ua) => {
 
 const main = async () => {
   if (!CANDIDATE) {
-    docker('rm', '-f', 'hazel-e2e-parity')
-    docker('run', '-d', '--name', 'hazel-e2e-parity', '-p', `${PORT}:8080`,
+    docker('run', '-d', '--name', CONTAINER, ...LABEL, '-p', `${PORT}:8080`,
       '-e', 'USE_LOCAL_ENV=true', '-e', 'ACCOUNT=Curvo-AI', '-e', 'REPOSITORY=curvo-companion',
-      '-e', `TOKEN=${process.env.TOKEN}`, 'hazel-e2e:current')
-    for (let i = 0; i < 60 && !/listening/.test(docker('logs', 'hazel-e2e-parity').stdout); i++) await sleep(250)
+      '-e', `TOKEN=${process.env.TOKEN}`, `${RUN}:current`)
+    for (let i = 0; i < 60 && !/listening/.test(docker('logs', CONTAINER).stdout); i++) await sleep(250)
   }
 
   const rows = []
@@ -102,9 +106,9 @@ const main = async () => {
     console.log(`${same ? 'SAME' : 'DIFF'} ${route}${ua ? ` [${ua}]` : ''}  ${JSON.stringify(l)}${same ? '' : `\n     prod: ${JSON.stringify(p)}`}`)
   }
   if (!CANDIDATE) {
-    const logs = docker('logs', 'hazel-e2e-parity')
+    const logs = docker('logs', CONTAINER)
     console.log('\nlocal container warnings/errors:\n' + (logs.stdout + logs.stderr).split('\n').filter(l => /skip|warn|error|fail/i.test(l)).join('\n'))
-    docker('rm', '-f', 'hazel-e2e-parity')
+    docker('rm', '-f', CONTAINER)
   }
   fs.writeFileSync(path.join(__dirname, 'parity.json'), JSON.stringify(rows, null, 2))
   console.log(`\n${rows.length} requests, ${diffs} differences`)

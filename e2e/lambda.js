@@ -5,7 +5,11 @@ const { spawnSync } = require('child_process')
 
 const E = __dirname
 const ADMIN = 'http://localhost:18081'
-const MOCK_IP = '172.30.0.10'
+// run.sh gives every Docker resource of a run this name prefix and label, so
+// cleanup only ever touches resources the run created
+const RUN = process.env.HAZEL_E2E_RUN || `hazel-e2e-${process.pid}`
+const LABEL = ['--label', `hazel-e2e.run=${RUN}`]
+const MOCK_IP = process.env.HAZEL_E2E_MOCK_IP
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const docker = (...args) => {
   const r = spawnSync('docker', args, { encoding: 'utf8' })
@@ -60,11 +64,10 @@ const invoke = async (port, rawPath, query) => {
 }
 
 const start = async (image, name, port, env) => {
-  docker('rm', '-f', name)
   const envArgs = Object.entries(Object.assign({
     NODE_EXTRA_CA_CERTS: '/e2e/certs/ca.pem', USE_LOCAL_ENV: 'true', ACCOUNT: 'curvo', REPOSITORY: 'companion', PORT: '3000'
   }, env)).flatMap(([k, v]) => ['-e', `${k}=${v}`])
-  docker('run', '-d', '--name', name, '--network', 'hazel-e2e',
+  docker('run', '-d', '--name', name, ...LABEL, '--network', RUN,
     '--add-host', `api.github.com:${MOCK_IP}`, '--add-host', `github.com:${MOCK_IP}`, '--add-host', `objects.githubusercontent.com:${MOCK_IP}`,
     '-v', `${E}:/e2e:ro`, '-p', `${port}:8080`, ...envArgs,
     '--entrypoint', '/usr/local/bin/aws-lambda-rie', image, 'node', 'server.js')
@@ -81,7 +84,7 @@ const json = r => {
 }
 
 const main = async () => {
-  const image = 'hazel-e2e:current'
+  const image = `${RUN}:current`
   const checks = []
   const check = (name, r, pass) => {
     checks.push(pass)
@@ -93,7 +96,7 @@ const main = async () => {
 
   await admin('/reset', {})
   await admin('/state', { pages, releasesContent })
-  await start(image, 'hazel-e2e-lambda', 18300, { TOKEN: 'test-token' })
+  await start(image, `${RUN}-lambda-healthy`, 18300, { TOKEN: 'test-token' })
   let r = await invoke(18300, '/update/darwin_arm64/1.4.0')
   check('update via API Gateway host', r, r.statusCode === 200 && json(r).url === `${apiBase}/download/darwin_arm64?update=true`)
   r = await invoke(18300, '/update/darwin_arm64/1.4.0-sv')
@@ -104,18 +107,18 @@ const main = async () => {
   check('private download redirect', r, r.statusCode === 302 && String(header(r, 'location')).startsWith('https://objects.githubusercontent.com/'))
   r = await invoke(18300, '/')
   check('overview', r, r.statusCode === 200 && r.body.includes('v1.4.1'))
-  docker('rm', '-f', 'hazel-e2e-lambda')
+  docker('rm', '-f', `${RUN}-lambda-healthy`)
 
   // Readiness must not depend on GitHub, or a cold start during an outage never finishes init
   await admin('/reset', {})
   await admin('/state', { pages, releasesContent, listMode: '503' })
-  await start(image, 'hazel-e2e-lambda', 18301, {})
+  await start(image, `${RUN}-lambda-outage`, 18301, {})
   r = await invoke(18301, '/update/darwin_arm64/1.4.0')
   check('cold start during GitHub outage', r, r.statusCode === 503 && r.ms < 10000)
   await admin('/state', { listMode: 'ok' })
   r = await invoke(18301, '/update/darwin_arm64/1.4.0')
   check('recovers when GitHub is back', r, r.statusCode === 200 && json(r).name === 'v1.4.1')
-  docker('rm', '-f', 'hazel-e2e-lambda')
+  docker('rm', '-f', `${RUN}-lambda-outage`)
 
   const failures = checks.filter(pass => !pass).length
   console.log(`\n${failures} failures`)

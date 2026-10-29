@@ -8,8 +8,12 @@ const path = require('path')
 
 const E = __dirname
 const ADMIN = 'http://localhost:18081'
-const MOCK_IP = '172.30.0.10'
-const IMAGES = { current: 'hazel-e2e:current', baseline: 'hazel-e2e:baseline' }
+// run.sh gives every Docker resource of a run this name prefix and label, so
+// cleanup only ever touches resources the run created
+const RUN = process.env.HAZEL_E2E_RUN || `hazel-e2e-${process.pid}`
+const LABEL = ['--label', `hazel-e2e.run=${RUN}`]
+const MOCK_IP = process.env.HAZEL_E2E_MOCK_IP
+const IMAGES = { current: `${RUN}:current`, baseline: `${RUN}:baseline` }
 const UA = {
   mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
   windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
@@ -73,15 +77,14 @@ const listFetches = async () => (await admin('/log')).filter(e => e.host === 'ap
 let port = 18100
 const startHazel = async (image, env = {}, { wait = true } = {}) => {
   const p = port++
-  const name = `hazel-e2e-${p}`
+  const name = `${RUN}-${p}`
   const fullEnv = Object.assign(
     { NODE_EXTRA_CA_CERTS: '/e2e/certs/ca.pem', USE_LOCAL_ENV: 'true', ACCOUNT: 'curvo', REPOSITORY: 'companion' },
     env
   )
   const envArgs = Object.entries(fullEnv).filter(([, v]) => v !== null).flatMap(([k, v]) => ['-e', `${k}=${v}`])
-  docker('rm', '-f', name)
   docker(
-    'run', '-d', '--name', name, '--network', 'hazel-e2e',
+    'run', '-d', '--name', name, ...LABEL, '--network', RUN,
     '--add-host', `api.github.com:${MOCK_IP}`, '--add-host', `github.com:${MOCK_IP}`,
     '--add-host', `objects.githubusercontent.com:${MOCK_IP}`,
     '-v', `${E}:/e2e:ro`, '-p', `${p}:8080`, ...envArgs, image
