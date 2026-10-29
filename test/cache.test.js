@@ -252,6 +252,35 @@ describe('stream-aware Cache', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps the RELEASES file byte for byte, including the BOM', async () => {
+    const releases = '\uFEFFABC123 App-1.0.0-full.nupkg 100'
+    global.fetch = jest.fn(async url => {
+      if (url.endsWith('/RELEASES')) {
+        return new Response(releases, { status: 200 })
+      }
+
+      const page = Number(new URL(url).searchParams.get('page'))
+      const assets = [
+        {
+          name: 'RELEASES',
+          browser_download_url: 'https://example.com/1.0.0/RELEASES',
+          url: 'https://api.example.com/assets/1',
+          size: 1
+        }
+      ]
+
+      return new Response(
+        JSON.stringify(page === 1 ? [Object.assign(release('1.0.0'), { assets })] : []),
+        { status: 200 }
+      )
+    })
+    const cache = new Cache({ account: 'zeit', repository: 'hyper' })
+
+    const production = await cache.loadCache()
+
+    expect(production.files.RELEASES).toBe(releases)
+  })
+
   it('rejects when the first refresh fails', async () => {
     const { Cache, fetch } = loadMockedCache([])
     fetch.mockImplementation(async () => ({ status: 403 }))

@@ -37,6 +37,9 @@ const requests = [
 const normalise = (base, r) => {
   const strip = s => (s || '').split(base).join('BASE')
   const out = { status: r.status }
+  // API Gateway adds text/plain when Hazel sets no content type
+  const contentType = r.contentType || 'text/plain; charset=utf-8'
+  out.contentType = contentType
   if (r.location) {
     // Signed asset URLs carry per-request query strings
     out.location = strip(r.location).split('?')[0]
@@ -48,7 +51,8 @@ const normalise = (base, r) => {
     out.url = r.json.url === undefined ? undefined : strip(r.json.url)
     out.error = r.json.error
   } else if (r.body && r.status === 200 && /RELEASES/.test(r.route)) {
-    out.body = strip(r.body).trim()
+    // Exact bytes: Squirrel's RELEASES starts with a BOM, which trim() would hide
+    out.body = JSON.stringify(strip(r.body))
   } else if (r.route === '/') {
     out.versions = [...new Set((r.body.match(/v\d+\.\d+\.\d+[\w.-]*/g) || []))].sort().join(',')
   } else if (r.body) {
@@ -64,10 +68,10 @@ const get = async (base, route, ua) => {
       headers: ua ? { 'user-agent': UA[ua] } : {},
       signal: AbortSignal.timeout(30000)
     })
-    const body = await res.text()
+    const body = Buffer.from(await res.arrayBuffer()).toString()
     let json = null
     try { json = JSON.parse(body) } catch {}
-    return { route, status: res.status, location: res.headers.get('location'), body, json }
+    return { route, status: res.status, location: res.headers.get('location'), contentType: res.headers.get('content-type'), body, json }
   } catch (error) {
     return { route, status: `ERROR ${error.name}` }
   }
