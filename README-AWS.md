@@ -40,12 +40,16 @@ The script:
 1. Refuses to run with uncommitted changes, because the image is tagged with
    the commit.
 2. Builds the image for `linux/amd64` and pushes it to the `hazel-update-server`
-   ECR repository with Docker v2 media types and no attestations.
+   ECR repository with Docker v2 media types and no attestations, tagged with
+   the commit. It deploys the image's digest, so a rebuild of the same commit
+   still replaces what Lambda runs.
 3. Creates a CloudFormation changeset, shows it with the current image, and asks
    for confirmation.
 4. Deploys and waits for the stack to finish.
-5. Requests the endpoint. A `200`, or a `503` while GitHub is down, passes. If
-   the check fails, it redeploys the previous image and exits non-zero.
+5. Requests the endpoint and requires a `200`, which proves the new image
+   loaded release data from GitHub. Otherwise it redeploys the exact image that
+   was running before and exits non-zero. During a GitHub outage this means
+   the deploy rolls back; retry once GitHub is back.
 
 To deploy another stack, such as a temporary test stack, or to change a
 parameter, pass them after `--`:

@@ -25,7 +25,7 @@ fi
 
 account="$(aws sts get-caller-identity --query Account --output text)"
 registry="$account.dkr.ecr.$region.amazonaws.com"
-image="$registry/$repository:$(git rev-parse --short=12 HEAD)"
+tag="$(git rev-parse --short=12 HEAD)"
 
 aws ecr describe-repositories --repository-names "$repository" --region "$region" >/dev/null 2>&1 ||
   aws ecr create-repository --repository-name "$repository" --region "$region" >/dev/null
@@ -34,15 +34,29 @@ aws ecr get-login-password --region "$region" |
 
 # Docker v2 media types, one platform, no attestations: the format Lambda runs
 docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
-  --output "type=registry,name=$image,oci-mediatypes=false" .
+  --output "type=registry,name=$registry/$repository:$tag,oci-mediatypes=false" .
 
+# Deploy by digest: Lambda pins whatever a tag pointed to at deploy time, so a
+# rebuild under the same tag would otherwise leave the old image running
+digest="$(aws ecr describe-images --repository-name "$repository" --region "$region" \
+  --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text)"
+image="$registry/$repository@$digest"
+
+# What is running now, so a failed deploy can restore both image and parameters
 previous=''
+previous_parameters=()
 function_name="$(aws cloudformation describe-stack-resource --stack-name "$stack" \
   --logical-resource-id HazelFunction --region "$region" \
   --query StackResourceDetail.PhysicalResourceId --output text 2>/dev/null || true)"
 if [ -n "$function_name" ]; then
   previous="$(aws lambda get-function --function-name "$function_name" --region "$region" \
-    --query Code.ImageUri --output text)"
+    --query Code.ResolvedImageUri --output text)"
+  while IFS=$'\t' read -r key value; do
+    if [ "$key" != ImageUri ]; then
+      previous_parameters+=("$key=$value")
+    fi
+  done < <(aws cloudformation describe-stacks --stack-name "$stack" --region "$region" \
+    --query 'Stacks[0].Parameters[].[ParameterKey,ParameterValue]' --output text)
 fi
 
 deploy() {
@@ -62,7 +76,7 @@ aws cloudformation describe-change-set --change-set-name "$change_set" --region 
   --query 'Changes[].ResourceChange.[Action,LogicalResourceId,ResourceType,Replacement]' \
   --output table
 echo "Current image: ${previous:-none}"
-read -r -p "Deploy $image to $stack? [y/N] " answer
+read -r -p "Deploy $tag ($image) to $stack? [y/N] " answer
 if [ "$answer" != y ]; then
   aws cloudformation delete-change-set --change-set-name "$change_set" --region "$region"
   echo 'Cancelled.'
@@ -79,14 +93,15 @@ fi
 url="$(aws cloudformation describe-stacks --stack-name "$stack" --region "$region" \
   --query "Stacks[0].Outputs[?OutputKey=='HazelUrl'].OutputValue" --output text)"
 
-# 200, or 503 when GitHub is down, means Hazel is running. The first request
-# is a cold start that loads releases from GitHub, so allow a few attempts.
+# Only a 200 proves the new image loaded release data. A 503 can mean a bad
+# token or SSM config as well as a GitHub outage, so it fails the check; during
+# an outage the deploy rolls back and can be retried. The first request is a
+# cold start that loads releases from GitHub, so allow a few attempts.
 healthy() {
-  local body status
+  local status
   for _ in 1 2 3; do
-    body="$(curl -s --max-time 30 -w '\n%{http_code}' "$url" || true)"
-    status="${body##*$'\n'}"
-    if [ "$status" = 200 ] || { [ "$status" = 503 ] && grep -q cache_unavailable <<<"$body"; }; then
+    status="$(curl -s -o /dev/null --max-time 30 -w '%{http_code}' "$url" || true)"
+    if [ "$status" = 200 ]; then
       return 0
     fi
     sleep 5
@@ -96,7 +111,7 @@ healthy() {
 }
 
 if healthy; then
-  echo "Deployed $image to $stack: $url"
+  echo "Deployed $tag ($image) to $stack: $url"
   exit 0
 fi
 
@@ -105,8 +120,8 @@ if [ -z "$previous" ]; then
   echo 'No previous image to roll back to.' >&2
   exit 1
 fi
-echo "Rolling back to $previous" >&2
-deploy "$previous" "$@"
+echo "Rolling back to $previous with ${previous_parameters[*]-no parameters}" >&2
+deploy "$previous" ${previous_parameters[@]+"${previous_parameters[@]}"}
 if healthy; then
   echo "Rolled back to $previous" >&2
 else
