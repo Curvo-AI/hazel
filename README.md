@@ -1,6 +1,6 @@
 # Hazel
 
-[![CircleCI](https://circleci.com/gh/vercel/hazel/tree/master.svg?style=svg)](https://circleci.com/gh/vercel/hazel/tree/master)
+[![Test](https://github.com/Curvo-AI/hazel/actions/workflows/test.yml/badge.svg)](https://github.com/Curvo-AI/hazel/actions/workflows/test.yml)
 
 This project lets you deploy an update server for [Electron](https://www.electronjs.org) apps with ease: You only need to click a button.
 
