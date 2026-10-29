@@ -24,7 +24,7 @@ Open this link in a new tab to deploy Hazel on [Vercel](https://vercel.com):
 
 ### Deploy to AWS
 
-Hazel can also be deployed to AWS Lambda using AWS SAM (Serverless Application Model). See [README-AWS.md](./README-AWS.md) for complete AWS deployment instructions.
+Hazel can also be deployed to AWS Lambda behind API Gateway. See [README-AWS.md](./README-AWS.md) for complete AWS deployment instructions.
 
 Once it's deployed, paste the deployment address into your code (please keep in mind that updates should only occur in the production version of the app, not while developing):
 

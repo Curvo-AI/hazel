@@ -123,22 +123,12 @@ aws ssm put-parameter \
 
 By default, Hazel looks for parameters under `/sst/hazel/production/secrets/`. To use a different prefix:
 
-### Update SAM Template Parameter
+### Set the Stack Parameter
 
-In `samconfig.toml`:
-
-```toml
-parameter_overrides = [
-  "SSMParameterPrefix=/my/custom/prefix",
-  "Pre=",
-  "Interval=15"
-]
-```
-
-Or during deployment:
+Pass the prefix when deploying. Later deploys keep it:
 
 ```bash
-sam deploy --parameter-overrides SSMParameterPrefix=/my/custom/prefix
+AWS_PROFILE=curvo-ai-mfa npm run aws:deploy -- hazel-update-server SSMParameterPrefix=/my/custom/prefix
 ```
 
 ### Create Parameters with Custom Prefix
@@ -196,25 +186,6 @@ aws ssm get-parameter \
 
 For local testing, set `USE_LOCAL_ENV=true` to skip SSM and use local environment variables:
 
-**env.json**:
-```json
-{
-  "HazelFunction": {
-    "ACCOUNT": "your-github-account",
-    "REPOSITORY": "your-repo-name",
-    "TOKEN": "",
-    "USE_LOCAL_ENV": "true",
-    "PORT": "8080"
-  }
-}
-```
-
-Then run:
-```bash
-npm run aws:local
-```
-
-Or for Node.js server:
 ```bash
 USE_LOCAL_ENV=true ACCOUNT=your-account REPOSITORY=your-repo npm run dev:local
 ```
@@ -297,6 +268,5 @@ If migrating from environment variable configuration:
 1. Create SSM parameters with your existing values
 2. Deploy the updated Hazel version
 3. Verify it works correctly
-4. Remove old parameter overrides from `samconfig.toml`
 
 The new version automatically falls back to environment variables if SSM parameters aren't available, so the migration is safe.

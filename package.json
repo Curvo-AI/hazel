@@ -7,11 +7,7 @@
     "dev": "npx vercel dev",
     "dev:local": "node -e 'const http = require(\"http\"); const handler = require(\"./lib/server\"); const PORT = process.env.PORT || 8080; const server = http.createServer(handler); server.listen(PORT, () => console.log(`Server running on port ${PORT}`));'",
     "test": "oxlint --deny-warnings && jest",
-    "aws:build": "sam build",
-    "aws:deploy": "sam deploy --guided",
-    "aws:deploy:fast": "sam build && sam deploy",
-    "aws:deploy:now": "sam build && sam deploy --no-confirm-changeset",
-    "aws:local": "sam local start-api --env-vars env.json",
+    "aws:deploy": "bash scripts/deploy.sh",
     "aws:logs": "sam logs -n HazelFunction --stack-name hazel-update-server --tail",
     "e2e": "bash e2e/run.sh",
     "e2e:parity": "bash e2e/run.sh parity"
