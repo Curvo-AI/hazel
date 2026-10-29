@@ -1,7 +1,6 @@
 # Hazel
 
 [![CircleCI](https://circleci.com/gh/vercel/hazel/tree/master.svg?style=svg)](https://circleci.com/gh/vercel/hazel/tree/master)
-[![XO code style](https://img.shields.io/badge/code_style-XO-5ed9c7.svg)](https://github.com/sindresorhus/xo)
 
 This project lets you deploy an update server for [Electron](https://www.electronjs.org) apps with ease: You only need to click a button.
 
@@ -46,7 +45,7 @@ From now on, the auto updater will ask your Hazel deployment for updates!
 
 The following environment variables can be used optionally:
 
-- `INTERVAL`: Refreshes the cache every x minutes ([restrictions](https://developer.github.com/changes/2012-10-14-rate-limit-changes/)) (defaults to 15 minutes)
+- `INTERVAL`: Refreshes the cache every x minutes ([restrictions](https://developer.github.com/changes/2012-10-14-rate-limit-changes/)) (defaults to 15 minutes). If a refresh fails, Hazel keeps serving the cached release and tries again after the next interval. If nothing is cached yet, requests get a `503`.
 - `PRE`: When defined with a value of `1`, only pre-releases will be cached
 - `TOKEN`: Your GitHub token (for private repos)
 - `URL`: The server's URL (for private repos - when running on [Vercel](https://vercel.com), this field is filled with the URL of the deployment automatically)

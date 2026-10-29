@@ -25,7 +25,7 @@ Resources:
   HazelFunction:
     Type: AWS::Serverless::Function
     Metadata:
-      DockerTag: nodejs16-v1
+      DockerTag: nodejs24-v1
       DockerContext: .
       Dockerfile: Dockerfile
     Properties:

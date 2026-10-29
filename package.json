@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "npx vercel dev",
     "dev:local": "node -e 'const http = require(\"http\"); const handler = require(\"./lib/server\"); const PORT = process.env.PORT || 8080; const server = http.createServer(handler); server.listen(PORT, () => console.log(`Server running on port ${PORT}`));'",
-    "test": "xo && jest",
-    "precommit": "lint-staged",
+    "test": "oxlint --deny-warnings && jest",
     "aws:build": "sam build",
     "aws:deploy": "sam deploy --guided",
     "aws:deploy:fast": "sam build && sam deploy",
@@ -17,48 +16,23 @@
   },
   "license": "MIT",
   "repository": "vercel/hazel",
-  "xo": {
-    "extends": [
-      "prettier"
-    ],
-    "rules": {
-      "camelcase": 0,
-      "new-cap": 0,
-      "unicorn/no-process-exit": 0,
-      "no-await-in-loop": 0,
-      "unicorn/import-index": 0
-    }
-  },
-  "lint-staged": {
-    "*.js": [
-      "xo",
-      "prettier --single-quote --no-semi --write --no-editorconfig",
-      "git add"
-    ]
-  },
   "dependencies": {
-    "@aws-sdk/client-ssm": "^3.899.0",
-    "async-retry": "1.2.3",
+    "@aws-sdk/client-ssm": "3.1157.0",
+    "async-retry": "1.3.3",
     "date-fns": "1.29.0",
-    "express-useragent": "1.0.12",
-    "fetch": "1.1.0",
-    "finalhandler": "1.1.0",
-    "handlebars": "4.0.11",
-    "jest": "24.0.0",
-    "micro": "9.3.3",
-    "ms": "2.1.1",
-    "node-fetch": "2.0.0",
-    "router": "1.3.2",
-    "semver": "5.5.0",
-    "stream-to-string": "1.1.0",
-    "test-listen": "1.1.0",
-    "yarn": "^1.22.22"
+    "express-useragent": "2.2.3",
+    "finalhandler": "2.1.1",
+    "handlebars": "4.7.10",
+    "micro": "10.0.1",
+    "ms": "2.1.3",
+    "router": "2.2.0",
+    "semver": "7.8.5"
   },
   "devDependencies": {
-    "eslint-config-prettier": "2.9.0",
-    "husky": "0.14.3",
-    "lint-staged": "7.0.0",
-    "prettier": "1.10.2",
-    "xo": "0.20.3"
+    "jest": "30.5.2",
+    "oxlint": "1.89.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
