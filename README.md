@@ -61,6 +61,10 @@ stream from the GitHub release tag suffix:
 - `v1.2.3-uat` serves `uat`.
 - `v1.2.3-whitelabel-sv` serves `whitelabel-sv`.
 
+Tags must be SemVer, and stream names may only contain letters, numbers, `-` and
+`_`. Releases with any other tag, such as `v1.2.3-uat.1`, are skipped so they are
+never served to production.
+
 Clients can select a stream explicitly with the `stream` query parameter. Explicit
 query selection takes precedence over inference from the client version:
 
