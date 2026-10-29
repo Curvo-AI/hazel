@@ -10,7 +10,11 @@ Needs Docker, Node 24 and OpenSSL.
 npm run e2e                           # scenario suite and Lambda path
 BASELINE=v5.1.1 npm run e2e           # compare against another ref
 TOKEN=$(gh auth token) npm run e2e:parity
+CANDIDATE=https://abc123.execute-api.eu-west-2.amazonaws.com node e2e/parity.js
 ```
+
+The last command compares an already deployed stack, such as a test stack,
+with production instead of a local container.
 
 ## What each part covers
 

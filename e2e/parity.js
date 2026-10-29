@@ -1,6 +1,7 @@
 // Compares the current image (local, real GitHub data) with the live
 // production endpoint for the same requests. Read-only GETs; redirects are not
-// followed. Run through `e2e/run.sh parity` with TOKEN set.
+// followed. Run through `e2e/run.sh parity` with TOKEN set, or set CANDIDATE to
+// a deployed Hazel URL to compare that instead of a local container.
 const { spawnSync } = require('child_process')
 const crypto = require('crypto')
 const fs = require('fs')
@@ -8,7 +9,10 @@ const path = require('path')
 
 const PROD = 'https://lb1xhk0l7l.execute-api.eu-west-2.amazonaws.com'
 const PORT = 18200
-const LOCAL = `http://localhost:${PORT}`
+const CANDIDATE = (process.env.CANDIDATE || '').replace(/\/$/, '')
+const LOCAL = CANDIDATE || `http://localhost:${PORT}`
+// Hazel builds absolute URLs from the Host header it receives
+const LOCAL_BASE = CANDIDATE || `https://localhost:${PORT}`
 const UA = {
   mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
   windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
@@ -78,26 +82,30 @@ const get = async (base, route, ua) => {
 }
 
 const main = async () => {
-  docker('rm', '-f', 'hazel-e2e-parity')
-  docker('run', '-d', '--name', 'hazel-e2e-parity', '-p', `${PORT}:8080`,
-    '-e', 'USE_LOCAL_ENV=true', '-e', 'ACCOUNT=Curvo-AI', '-e', 'REPOSITORY=curvo-companion',
-    '-e', `TOKEN=${process.env.TOKEN}`, 'hazel-e2e:current')
-  for (let i = 0; i < 60 && !/listening/.test(docker('logs', 'hazel-e2e-parity').stdout); i++) await sleep(250)
+  if (!CANDIDATE) {
+    docker('rm', '-f', 'hazel-e2e-parity')
+    docker('run', '-d', '--name', 'hazel-e2e-parity', '-p', `${PORT}:8080`,
+      '-e', 'USE_LOCAL_ENV=true', '-e', 'ACCOUNT=Curvo-AI', '-e', 'REPOSITORY=curvo-companion',
+      '-e', `TOKEN=${process.env.TOKEN}`, 'hazel-e2e:current')
+    for (let i = 0; i < 60 && !/listening/.test(docker('logs', 'hazel-e2e-parity').stdout); i++) await sleep(250)
+  }
 
   const rows = []
   let diffs = 0
   for (const [route, ua] of requests) {
     const [prod, local] = await Promise.all([get(PROD, route, ua), get(LOCAL, route, ua)])
     const p = normalise(PROD, prod)
-    const l = normalise(`https://localhost:${PORT}`, local)
+    const l = normalise(LOCAL_BASE, local)
     const same = JSON.stringify(p) === JSON.stringify(l)
     if (!same) diffs++
     rows.push({ route: route + (ua ? ` [${ua} UA]` : ''), same, prod: p, local: l })
     console.log(`${same ? 'SAME' : 'DIFF'} ${route}${ua ? ` [${ua}]` : ''}  ${JSON.stringify(l)}${same ? '' : `\n     prod: ${JSON.stringify(p)}`}`)
   }
-  const logs = docker('logs', 'hazel-e2e-parity')
-  console.log('\nlocal container warnings/errors:\n' + (logs.stdout + logs.stderr).split('\n').filter(l => /skip|warn|error|fail/i.test(l)).join('\n'))
-  docker('rm', '-f', 'hazel-e2e-parity')
+  if (!CANDIDATE) {
+    const logs = docker('logs', 'hazel-e2e-parity')
+    console.log('\nlocal container warnings/errors:\n' + (logs.stdout + logs.stderr).split('\n').filter(l => /skip|warn|error|fail/i.test(l)).join('\n'))
+    docker('rm', '-f', 'hazel-e2e-parity')
+  }
   fs.writeFileSync(path.join(__dirname, 'parity.json'), JSON.stringify(rows, null, 2))
   console.log(`\n${rows.length} requests, ${diffs} differences`)
   process.exit(diffs ? 1 : 0)
