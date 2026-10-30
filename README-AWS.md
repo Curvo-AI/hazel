@@ -93,6 +93,34 @@ aws cloudformation set-stack-policy --stack-name hazel-update-server --stack-pol
 aws cloudformation update-termination-protection --stack-name hazel-update-server --enable-termination-protection
 ```
 
+### Custom domain
+
+A stack can serve an extra hostname, such as `updates.curvo.ai`, in front of
+the same API:
+
+```bash
+AWS_PROFILE=curvo-ai-mfa npm run aws:deploy -- hazel-update-server CustomDomainName=updates.curvo.ai HostedZoneId=Z01447682NMUY8FGBAAHE
+```
+
+This creates a DNS-validated ACM certificate that renews itself, an API
+Gateway custom domain and a Route 53 alias record. The smoke check then
+requires a `200` from both URLs.
+
+The domain is an addition, never a replacement:
+
+- **Keep the execute-api URL working.** Installed Companions have it built in,
+  and the lock above protects it. Don't disable the execute-api endpoint.
+- **Clients must fall back.** A Companion that uses the domain needs the
+  execute-api URL as a runtime fallback, so a DNS or certificate problem
+  can't strand it. Don't point `CURVO_UPDATE_SERVER_URL` at the domain until
+  Companion has that fallback.
+- **Links stay on the URL that was asked.** Hazel builds download and
+  RELEASES links from the request's host, so a client that falls back stays
+  on execute-api.
+
+Don't look the hostname up before the first deploy creates it. Resolvers can
+cache the "doesn't exist" answer and the smoke check would fail.
+
 ### Why not `sam build && sam deploy`
 
 With Docker Desktop's containerd image store, the image SAM pushed had a mixed
