@@ -8,6 +8,9 @@ Globals:
     MemorySize: 512
 
 Parameters:
+  ImageUri:
+    Type: String
+    Description: ECR image to run; scripts/deploy.sh builds, pushes and sets it
   SSMParameterPrefix:
     Type: String
     Default: '/sst/hazel/production/secrets'
@@ -24,17 +27,15 @@ Parameters:
 Resources:
   HazelFunction:
     Type: AWS::Serverless::Function
-    Metadata:
-      DockerTag: nodejs16-v1
-      DockerContext: .
-      Dockerfile: Dockerfile
     Properties:
       PackageType: Image
+      ImageUri: !Ref ImageUri
       Architectures:
         - x86_64
       Environment:
         Variables:
           PORT: 8080
+          SSM_PARAMETER_PREFIX: !Ref SSMParameterPrefix
           PRE: !Ref Pre
           INTERVAL: !Ref Interval
       Policies:
