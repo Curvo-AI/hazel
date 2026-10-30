@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Role that the Deploy workflow in Curvo-AI/hazel assumes through GitHub OIDC
+  to run scripts/deploy.sh against one Hazel stack. Deploy it once per Hazel
+  stack; see README-AWS.md.
+
+Parameters:
+  HazelStackName:
+    Type: String
+    AllowedValues:
+      - hazel-update-server-test
+      - hazel-update-server
+    Description: The Hazel stack this role may deploy
+
+# Each role only trusts its own GitHub environment, so the test environment
+# cannot deploy production and production runs need an approval first.
+# Test stacks are deleted and recreated, which gives them a new HTTP API ID,
+# so the test role may manage any HTTP API except production's. The production
+# role is pinned to production's API: if that stack is ever recreated, update
+# its ApiId below and redeploy this role.
+Mappings:
+  Stacks:
+    hazel-update-server-test:
+      Environment: test
+      ApiId: '*'
+    hazel-update-server:
+      Environment: production
+      ApiId: lb1xhk0l7l
+
+Conditions:
+  IsTest: !Equals [!Ref HazelStackName, hazel-update-server-test]
+
+Resources:
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub
+        - github-actions-hazel-deploy-${Environment}
+        - Environment: !FindInMap [Stacks, !Ref HazelStackName, Environment]
+      Description: !Sub Deploys ${HazelStackName} from the Curvo-AI/hazel Deploy workflow
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub
+                  - repo:Curvo-AI/hazel:environment:${Environment}
+                  - Environment: !FindInMap [Stacks, !Ref HazelStackName, Environment]
+      Policies:
+        - PolicyName: deploy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: EcrLogin
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              # Push the image; Lambda checks the repository policy lets it pull
+              - Sid: EcrPush
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:DescribeImages
+                  - ecr:DescribeRepositories
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:GetRepositoryPolicy
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/hazel-update-server
+              - Sid: CloudFormation
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResource
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:GetTemplateSummary
+                Resource:
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${HazelStackName}/*
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:changeSet/awscli-cloudformation-package-deploy-*/*
+              - Sid: SamTransform
+                Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource: !Sub arn:aws:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31
+              # CloudFormation acts with the caller's permissions, so the role
+              # also needs what the stack's own resources need
+              - Sid: Function
+                Effect: Allow
+                Action:
+                  - lambda:AddPermission
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:Get*
+                  - lambda:List*
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${HazelStackName}-HazelFunction-*
+              - Sid: FunctionRole
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/${HazelStackName}-HazelFunctionRole-*
+              - Sid: FunctionRoleManagedPolicy
+                Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/${HazelStackName}-HazelFunctionRole-*
+                Condition:
+                  ArnEquals:
+                    iam:PolicyARN: arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+              - Sid: PassFunctionRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/${HazelStackName}-HazelFunctionRole-*
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: lambda.amazonaws.com
+              - Sid: HttpApi
+                Effect: Allow
+                Action:
+                  - apigateway:DELETE
+                  - apigateway:GET
+                  - apigateway:PATCH
+                  - apigateway:POST
+                  - apigateway:PUT
+                Resource:
+                  - !Sub arn:aws:apigateway:${AWS::Region}::/apis
+                  - !Sub
+                    - arn:aws:apigateway:${AWS::Region}::/apis/${ApiId}
+                    - ApiId: !FindInMap [Stacks, !Ref HazelStackName, ApiId]
+                  - !Sub
+                    - arn:aws:apigateway:${AWS::Region}::/apis/${ApiId}/*
+                    - ApiId: !FindInMap [Stacks, !Ref HazelStackName, ApiId]
+              - !If
+                - IsTest
+                - Sid: NotProductionApi
+                  Effect: Deny
+                  Action: apigateway:*
+                  Resource:
+                    - !Sub
+                      - arn:aws:apigateway:${AWS::Region}::/apis/${ApiId}
+                      - ApiId: !FindInMap [Stacks, hazel-update-server, ApiId]
+                    - !Sub
+                      - arn:aws:apigateway:${AWS::Region}::/apis/${ApiId}/*
+                      - ApiId: !FindInMap [Stacks, hazel-update-server, ApiId]
+                - !Ref AWS::NoValue
+
+Outputs:
+  RoleArn:
+    Description: Set as the AWS_DEPLOY_ROLE_ARN variable of the matching GitHub environment
+    Value: !GetAtt DeployRole.Arn
