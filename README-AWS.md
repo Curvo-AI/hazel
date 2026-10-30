@@ -6,9 +6,10 @@ passes API Gateway requests to Hazel's ordinary Node.js HTTP server.
 
 Deploys go through [scripts/deploy.sh](./scripts/deploy.sh). It builds the
 image, pushes it to ECR, deploys [template.yaml](./template.yaml) with
-CloudFormation, checks the endpoint and rolls back if the check fails.
+CloudFormation, checks the endpoint and rolls back if the check fails. Run it
+from the [Deploy workflow](#deploying-from-github-actions) or from your machine.
 
-## Prerequisites
+## Prerequisites for local deploys
 
 1. **AWS CLI** with credentials for the target account
 2. **Docker** with `buildx` (Docker Desktop includes it)
@@ -27,7 +28,53 @@ Stack parameters, all optional:
 - `Pre`: set to `1` to serve only pre-releases
 - `Interval`: cache refresh interval in minutes (default `15`)
 
-## Deploying
+## Deploying from GitHub Actions
+
+The [Deploy workflow](./.github/workflows/deploy.yml) runs `scripts/deploy.sh`
+on a GitHub runner, so it needs no local Docker or MFA session. Run it from
+**Actions → Deploy → Run workflow**, or:
+
+```bash
+gh workflow run deploy.yml -R Curvo-AI/hazel --ref master -f stack=hazel-update-server-test
+```
+
+- `stack` is `hazel-update-server-test` (the default) or `hazel-update-server`.
+  Production runs in the `production` environment and wait for a reviewer to
+  approve them.
+- `dry-run` shows the changeset and deletes it without deploying. It still
+  pushes the image to ECR.
+- The run deploys the commit it was started on and keeps the stack's current
+  parameters. To change a parameter, deploy from your machine.
+
+The workflow assumes an IAM role through GitHub OIDC; there are no stored AWS
+keys. [github-deploy-role.yaml](./github-deploy-role.yaml) defines one role per
+stack, each trusting only its own GitHub environment and limited to that
+stack's resources and the `hazel-update-server` ECR repository. The test role
+cannot change the production stack.
+
+### One-off setup
+
+1. Create both roles (needs an MFA session):
+
+   ```bash
+   AWS_PROFILE=curvo-ai-mfa aws cloudformation deploy --region eu-west-2 --template-file github-deploy-role.yaml --capabilities CAPABILITY_NAMED_IAM --stack-name hazel-github-deploy-test --parameter-overrides HazelStackName=hazel-update-server-test
+   AWS_PROFILE=curvo-ai-mfa aws cloudformation deploy --region eu-west-2 --template-file github-deploy-role.yaml --capabilities CAPABILITY_NAMED_IAM --stack-name hazel-github-deploy-production --parameter-overrides HazelStackName=hazel-update-server
+   ```
+
+2. In the repository's **Settings → Environments**, create `test` and
+   `production`. Give `production` required reviewers and limit its deployment
+   branches to `master`.
+3. In each environment, set the variable `AWS_DEPLOY_ROLE_ARN` to the
+   `RoleArn` output of the matching stack
+   (`arn:aws:iam::<account>:role/github-actions-hazel-deploy-test` or
+   `…-production`).
+
+The test role may create and replace HTTP APIs other than production's,
+because a recreated test stack gets a new API. The production role is pinned
+to production's API ID in the template; if the production stack is ever
+recreated, update that ID and redeploy its role stack.
+
+## Deploying from your machine
 
 Commit your changes, then:
 
@@ -44,7 +91,8 @@ The script:
    the commit. It deploys the image's digest, so a rebuild of the same commit
    still replaces what Lambda runs.
 3. Creates a CloudFormation changeset, shows it with the current image, and asks
-   for confirmation.
+   for confirmation. `--yes` deploys without asking and `--dry-run` deletes the
+   changeset instead; the workflow uses these.
 4. Deploys and waits for the stack to finish.
 5. Requests the endpoint and requires a `200`, which proves the new image
    loaded release data from GitHub. Otherwise it redeploys the exact image that
