@@ -73,6 +73,26 @@ CANDIDATE=https://<test-api-id>.execute-api.eu-west-2.amazonaws.com node e2e/par
 
 Delete the test stack afterwards (see Cleanup).
 
+### The production URL is locked
+
+Every installed Companion has the production `execute-api` URL built in, and
+the URL is made from the API's ID. If CloudFormation ever replaced or deleted
+the API, those installs would never find another update. So production has:
+
+- **Termination protection**, so the stack can't be deleted.
+- **The stack policy in [stack-policy.json](./stack-policy.json)**, which denies
+  replacing or deleting `ServerlessHttpApi` and its `$default` stage. A template
+  that would replace them fails to execute. One that removes or renames them
+  fails while the changeset is created, with `Unknown logical id` in the error.
+
+Ordinary deploys, parameter changes and rollbacks are unaffected. To apply the
+same lock to a new stack:
+
+```bash
+aws cloudformation set-stack-policy --stack-name hazel-update-server --stack-policy-body file://stack-policy.json
+aws cloudformation update-termination-protection --stack-name hazel-update-server --enable-termination-protection
+```
+
 ### Why not `sam build && sam deploy`
 
 With Docker Desktop's containerd image store, the image SAM pushed had a mixed
@@ -140,9 +160,14 @@ For about 300,000 update checks a month, expect about $0.30, mostly API Gateway.
 
 ## Cleanup
 
+A test stack with the lock applied needs it lifted first:
+
 ```bash
+aws cloudformation update-termination-protection --stack-name hazel-update-server-test --no-enable-termination-protection --region eu-west-2
 aws cloudformation delete-stack --stack-name hazel-update-server-test --region eu-west-2
 ```
+
+Never lift it on `hazel-update-server`.
 
 Images stay in the `hazel-update-server` ECR repository, which production also
 uses. Delete a test stack's images only if no stack still runs them.
