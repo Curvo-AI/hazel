@@ -8,11 +8,19 @@ set -euo pipefail
 # Desktop's containerd image store produced images Lambda could not start
 # (Runtime.InvalidEntrypoint), even for unchanged code.
 #
-# Usage: scripts/deploy.sh [stack-name] [Parameter=Value ...]
+# Usage: scripts/deploy.sh [--yes | --dry-run] [stack-name] [Parameter=Value ...]
+#   --yes      deploys the change set without asking (for CI)
+#   --dry-run  shows the change set, then deletes it; the image is still pushed
 #   stack-name defaults to hazel-update-server
-# Needs an MFA session (see README-AWS.md), Docker and a clean git tree.
+# Needs AWS credentials (an MFA session locally, see README-AWS.md), Docker
+# and a clean git tree.
 
 cd "$(dirname "$0")/.."
+mode=ask
+case "${1:-}" in
+  --yes) mode=yes; shift ;;
+  --dry-run) mode=dry-run; shift ;;
+esac
 stack="${1:-hazel-update-server}"
 shift || true
 region="${AWS_REGION:-eu-west-2}"
@@ -76,9 +84,17 @@ aws cloudformation describe-change-set --change-set-name "$change_set" --region 
   --query 'Changes[].ResourceChange.[Action,LogicalResourceId,ResourceType,Replacement]' \
   --output table
 echo "Current image: ${previous:-none}"
-read -r -p "Deploy $tag ($image) to $stack? [y/N] " answer
+case "$mode" in
+  yes) answer=y ;;
+  dry-run) answer=n ;;
+  *) read -r -p "Deploy $tag ($image) to $stack? [y/N] " answer ;;
+esac
 if [ "$answer" != y ]; then
   aws cloudformation delete-change-set --change-set-name "$change_set" --region "$region"
+  if [ "$mode" = dry-run ]; then
+    echo "Dry run: change set deleted, $stack unchanged."
+    exit 0
+  fi
   echo 'Cancelled.'
   exit 1
 fi
