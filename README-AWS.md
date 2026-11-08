@@ -1,196 +1,132 @@
 # Hazel - AWS Deployment Guide
 
-This guide explains how to deploy Hazel to AWS using AWS SAM (Serverless Application Model) with Lambda Web Adapter.
+Hazel runs on AWS Lambda as a container image behind an API Gateway HTTP API.
+The [Lambda Web Adapter](https://github.com/awslabs/aws-lambda-web-adapter)
+passes API Gateway requests to Hazel's ordinary Node.js HTTP server.
+
+Deploys go through [scripts/deploy.sh](./scripts/deploy.sh). It builds the
+image, pushes it to ECR, deploys [template.yaml](./template.yaml) with
+CloudFormation, checks the endpoint and rolls back if the check fails.
 
 ## Prerequisites
 
-1. **AWS CLI**: Install and configure AWS CLI with your credentials
-   ```bash
-   aws configure
-   ```
-
-2. **AWS SAM CLI**: Install the AWS SAM CLI
-   ```bash
-   # macOS
-   brew install aws-sam-cli
-   
-   # Or download from: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html
-   ```
-
-3. **Docker**: Required for building the Lambda container image
-   ```bash
-   # macOS
-   brew install --cask docker
-   ```
+1. **AWS CLI** with credentials for the target account
+2. **Docker** with `buildx` (Docker Desktop includes it)
+3. **An MFA session.** In the Curvo account, CloudFormation deploys fail with
+   `S3 error: Access Denied` without one. Refresh the `curvo-ai-mfa` profile
+   with `aws sts get-session-token` and deploy with `AWS_PROFILE=curvo-ai-mfa`.
 
 ## Configuration
 
-Hazel loads configuration from AWS Systems Manager (SSM) Parameter Store for secure secret management.
+Hazel reads `ACCOUNT`, `REPOSITORY` and `TOKEN` from SSM Parameter Store when it
+starts. Create them before the first deploy; see [SSM-SETUP.md](./SSM-SETUP.md).
 
-### Required SSM Parameters
+Stack parameters, all optional:
 
-Create these parameters in AWS SSM Parameter Store:
+- `SSMParameterPrefix`: where the SSM parameters live (default `/sst/hazel/production/secrets`)
+- `Pre`: set to `1` to serve only pre-releases
+- `Interval`: cache refresh interval in minutes (default `15`)
 
-- `/sst/hazel/production/secrets/ACCOUNT` - Your GitHub username or organization name
-- `/sst/hazel/production/secrets/REPOSITORY` - Your GitHub repository name (e.g., "electron-app")
-- `/sst/hazel/production/secrets/TOKEN` - (Optional) GitHub personal access token for private repositories
+## Deploying
 
-**See [SSM-SETUP.md](./SSM-SETUP.md) for detailed setup instructions.**
-
-### Optional Environment Variables
-
-- `PRE`: Set to `1` to serve only pre-releases
-- `INTERVAL`: Cache refresh interval in minutes (default: 15)
-- `SSMParameterPrefix`: Custom SSM parameter prefix (default: `/sst/hazel/production/secrets`)
-
-### Setup Steps
-
-1. **Create SSM Parameters** (before deployment):
-   
-   ```bash
-   # Create required SSM parameters
-   aws ssm put-parameter \
-     --name "/sst/hazel/production/secrets/ACCOUNT" \
-     --value "your-github-account" \
-     --type "String"
-   
-   aws ssm put-parameter \
-     --name "/sst/hazel/production/secrets/REPOSITORY" \
-     --value "your-repo-name" \
-     --type "String"
-   
-   # Optional: for private repos
-   aws ssm put-parameter \
-     --name "/sst/hazel/production/secrets/TOKEN" \
-     --value "ghp_xxxxxxxxxxxx" \
-     --type "SecureString"
-   ```
-   
-   See [SSM-SETUP.md](./SSM-SETUP.md) for more details.
-
-2. **Configuration Files**:
-
-   **samconfig.toml**: This file will be auto-generated during your first `sam deploy --guided`. You can copy from the example:
-   ```bash
-   cp samconfig.toml.example samconfig.toml
-   ```
-   
-   Or let SAM create it for you (recommended for first-time deployment).
-
-   **env.json**: For local testing only
-   ```json
-   {
-     "HazelFunction": {
-       "ACCOUNT": "your-github-account",
-       "REPOSITORY": "your-repo-name",
-       "USE_LOCAL_ENV": "true"
-     }
-   }
-   ```
-
-## Deployment
-
-### First-Time Deployment
-
-1. **Create SSM Parameters** (see [SSM-SETUP.md](./SSM-SETUP.md) or the Configuration section above)
-
-2. **Build the application**:
-   ```bash
-   npm run aws:build
-   # or
-   sam build
-   ```
-
-3. **Deploy with guided mode** (interactive):
-   ```bash
-   npm run aws:deploy
-   # or
-   sam deploy --guided
-   ```
-
-   You'll be prompted for:
-   - Stack name (default: `hazel-update-server`)
-   - AWS Region (e.g., `us-east-1`)
-   - Parameter values (SSMParameterPrefix, Pre, Interval)
-   - **Image Repository for HazelFunction**: Press Enter to let SAM create an ECR repository automatically
-   - Confirmation for IAM role creation
-   - Confirmation for various capabilities
-   - Save configuration to samconfig.toml: Choose `Y`
-
-   **Important**: When prompted for "Image Repository for HazelFunction", just press Enter. SAM will automatically create an ECR repository for you.
-
-4. **Note the output URL**: After deployment, SAM will output the API URL:
-   ```
-   Outputs:
-   HazelUrl: https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/Prod
-   ```
-
-### Subsequent Deployments
-
-After the first deployment, you can use the fast deployment command:
+Commit your changes, then:
 
 ```bash
-npm run aws:deploy:fast
-# or
-sam build && sam deploy
+AWS_PROFILE=curvo-ai-mfa npm run aws:deploy
 ```
 
-This uses the configuration saved in `samconfig.toml`.
+The script:
 
-## Local Testing
+1. Refuses to run with uncommitted changes, because the image is tagged with
+   the commit.
+2. Builds the image for `linux/amd64` and pushes it to the `hazel-update-server`
+   ECR repository with Docker v2 media types and no attestations, tagged with
+   the commit. It deploys the image's digest, so a rebuild of the same commit
+   still replaces what Lambda runs.
+3. Creates a CloudFormation changeset, shows it with the current image, and asks
+   for confirmation.
+4. Deploys and waits for the stack to finish.
+5. Requests the endpoint and requires a `200`, which proves the new image
+   loaded release data from GitHub. Otherwise it redeploys the exact image that
+   was running before and exits non-zero. During a GitHub outage this means
+   the deploy rolls back; retry once GitHub is back.
 
-### Test Locally with SAM
-
-Start the API locally using SAM Local:
+To deploy another stack, such as a temporary test stack, or to change a
+parameter, pass them after `--`:
 
 ```bash
-npm run aws:local
-# or
-sam local start-api --env-vars env.json
+AWS_PROFILE=curvo-ai-mfa npm run aws:deploy -- hazel-update-server-test
+AWS_PROFILE=curvo-ai-mfa npm run aws:deploy -- hazel-update-server Interval=30
 ```
 
-Then test with curl:
-```bash
-curl http://localhost:3000/
-```
+Parameters you don't pass keep their current values. Set `AWS_REGION` to deploy
+outside `eu-west-2`.
 
-### Test with Node.js Server
+### Before deploying production
 
-Run a simple Node.js HTTP server locally:
+Deploy the change to a test stack and compare it with production:
 
 ```bash
-ACCOUNT=your-account REPOSITORY=your-repo npm run dev:local
+AWS_PROFILE=curvo-ai-mfa npm run aws:deploy -- hazel-update-server-test
+CANDIDATE=https://<test-api-id>.execute-api.eu-west-2.amazonaws.com node e2e/parity.js
 ```
 
-Then test:
+Delete the test stack afterwards (see Cleanup).
+
+### The production URL is locked
+
+Every installed Companion has the production `execute-api` URL built in, and
+the URL is made from the API's ID. If CloudFormation ever replaced or deleted
+the API, those installs would never find another update. So production has:
+
+- **Termination protection**, so the stack can't be deleted.
+- **The stack policy in [stack-policy.json](./stack-policy.json)**, which denies
+  replacing or deleting `ServerlessHttpApi` and its `$default` stage. A template
+  that would replace them fails to execute. One that removes or renames them
+  fails while the changeset is created, with `Unknown logical id` in the error.
+
+Ordinary deploys, parameter changes and rollbacks are unaffected. To apply the
+same lock to a new stack:
+
 ```bash
-curl http://localhost:8080/
+aws cloudformation set-stack-policy --stack-name hazel-update-server --stack-policy-body file://stack-policy.json
+aws cloudformation update-termination-protection --stack-name hazel-update-server --enable-termination-protection
 ```
 
-## Monitoring and Logs
+### Why not `sam build && sam deploy`
 
-### View Lambda Logs
+With Docker Desktop's containerd image store, the image SAM pushed had a mixed
+OCI manifest that Lambda could not start. Every request failed with
+`Runtime.InvalidEntrypoint` (`ProcessSpawnFailed`), even for unchanged code.
+The script pins the format Lambda is known to run.
+
+## Testing
+
+```bash
+npm test          # lint and unit tests
+npm run e2e       # Docker image end to end, including the Lambda path
+```
+
+See [e2e/README.md](./e2e/README.md). To run the server directly:
+
+```bash
+USE_LOCAL_ENV=true ACCOUNT=your-account REPOSITORY=your-repo npm run dev:local
+```
+
+## Logs
 
 ```bash
 npm run aws:logs
-# or
-sam logs -n HazelFunction --stack-name hazel-update-server --tail
 ```
 
-### CloudWatch Logs
+This uses the SAM CLI (`brew install aws-sam-cli`). Without it, open the
+`/aws/lambda/hazel-update-server-HazelFunction-…` log group in CloudWatch.
 
-You can also view logs in the AWS Console:
-1. Navigate to CloudWatch → Log groups
-2. Find `/aws/lambda/hazel-update-server-HazelFunction-xxxxx`
+## Updating SSM Parameters
 
-## Updating Configuration
-
-### Update SSM Parameters
-
-Configuration is stored in SSM Parameter Store. Update parameters without redeploying:
+SSM changes need no deploy:
 
 ```bash
-# Update a parameter
 aws ssm put-parameter \
   --name "/sst/hazel/production/secrets/TOKEN" \
   --value "new-token-value" \
@@ -198,28 +134,15 @@ aws ssm put-parameter \
   --overwrite
 ```
 
-Changes take effect on the next Lambda cold start (typically within 15 minutes), or force restart by updating a dummy environment variable.
-
-See [SSM-SETUP.md](./SSM-SETUP.md) for more details.
-
-### Update Optional Environment Variables
-
-For PRE, INTERVAL, or other non-SSM settings:
-
-1. Update `samconfig.toml` with new parameter values
-2. Redeploy:
-   ```bash
-   npm run aws:deploy:fast
-   ```
+Running Lambda containers keep the old value until they are replaced. A deploy
+replaces them straight away.
 
 ## Using in Your Electron App
-
-Update your Electron app to use the AWS endpoint:
 
 ```js
 const { app, autoUpdater } = require('electron')
 
-const server = 'https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/Prod'
+const server = 'https://xxxxxxxxxx.execute-api.eu-west-2.amazonaws.com'
 const url = `${server}/update/${process.platform}/${app.getVersion()}`
 
 autoUpdater.setFeedURL({ url })
@@ -231,28 +154,54 @@ AWS Lambda pricing (as of 2024):
 - **Free tier**: 1M requests/month + 400,000 GB-seconds compute time
 - **After free tier**: $0.20 per 1M requests + $0.0000166667 per GB-second
 
-For a typical Electron app with 10,000 users checking for updates daily:
-- ~300,000 requests/month
-- Well within free tier for most use cases
+API Gateway HTTP API pricing: $1.00 per million requests, with no free tier.
 
-API Gateway HTTP API pricing:
-- **Free tier**: None
-- **Cost**: $1.00 per million requests
-
-**Estimated monthly cost for 300K requests**: ~$0.30 (mostly API Gateway)
+For about 300,000 update checks a month, expect about $0.30, mostly API Gateway.
 
 ## Cleanup
 
-To remove the deployment and all resources:
+A test stack with the lock applied needs it lifted first:
 
 ```bash
-sam delete --stack-name hazel-update-server
+aws cloudformation update-termination-protection --stack-name hazel-update-server-test --no-enable-termination-protection --region eu-west-2
+aws cloudformation delete-stack --stack-name hazel-update-server-test --region eu-west-2
 ```
 
-Or via AWS Console:
-1. Go to CloudFormation
-2. Select `hazel-update-server` stack
-3. Click "Delete"
+Never lift it on `hazel-update-server`.
+
+Images stay in the `hazel-update-server` ECR repository, which production also
+uses. Delete a test stack's images only if no stack still runs them.
+
+## Troubleshooting
+
+### Every request returns 500 with `Runtime.InvalidEntrypoint`
+
+The image was pushed in a format Lambda can't start. Deploy with
+`scripts/deploy.sh`, not `sam deploy`. The script rolls back automatically when
+this happens.
+
+### `S3 error: Access Denied` while creating the changeset
+
+The deploy ran without an MFA session. Refresh `curvo-ai-mfa` and retry.
+
+### "Error loading SSM parameters" or "Missing configuration properties"
+
+1. Check the parameters exist in the stack's region:
+   ```bash
+   aws ssm get-parameters-by-path --path "/sst/hazel/production/secrets" --region eu-west-2
+   ```
+2. Create any that are missing (see [SSM-SETUP.md](./SSM-SETUP.md)).
+3. Check `SSMParameterPrefix` on the stack matches where the parameters live.
+
+### Cache not refreshing
+
+Releases are reloaded every `Interval` minutes. If GitHub fails, Hazel keeps
+serving the cached release and tries again after the next interval.
+
+### Private repository not working
+
+1. The `TOKEN` SSM parameter holds a valid GitHub token with `repo` scope.
+2. It is a `SecureString`.
 
 ## Architecture
 
@@ -268,68 +217,3 @@ Or via AWS Console:
                                             │  (Release Data) │
                                             └─────────────────┘
 ```
-
-The Lambda Web Adapter bridges API Gateway events to your existing Node.js HTTP server, requiring minimal code changes.
-
-## Troubleshooting
-
-### "Error: Invalid value for '--image-repositories'"
-
-**Cause**: You have an old `samconfig.toml` with invalid ECR repository configuration.
-
-**Solution**: Delete `samconfig.toml` and run `sam deploy --guided` again:
-```bash
-rm samconfig.toml
-npm run aws:deploy
-```
-
-SAM will automatically create and manage the ECR repository during guided deployment.
-
-### "Error: Unable to upload artifact" during deployment
-
-Make sure Docker is running and you're logged into AWS ECR if required.
-
-### "Error loading SSM parameters" or "Missing configuration properties"
-
-**Causes**:
-- SSM parameters don't exist
-- Parameters are in a different AWS region
-- IAM permissions issue
-
-**Solutions**:
-1. Verify SSM parameters exist:
-   ```bash
-   aws ssm get-parameters-by-path --path "/sst/hazel/production/secrets" --region us-east-1
-   ```
-2. Create missing parameters (see [SSM-SETUP.md](./SSM-SETUP.md))
-3. Ensure parameters are in the same region as your Lambda function
-4. Check Lambda execution role has SSM read permissions
-
-### Cache not refreshing
-
-Check the `INTERVAL` environment variable. Default is 15 minutes. For immediate refresh, restart the Lambda function or wait for the next invocation after the interval.
-
-### Private repository not working
-
-Ensure:
-1. `TOKEN` SSM parameter is set with a valid GitHub personal access token
-2. Token has `repo` scope permissions
-3. Token parameter is created as `SecureString` type
-
-## Migration from Vercel
-
-If migrating from an existing Vercel deployment:
-
-1. Deploy to AWS as described above
-2. Update your Electron app to use the new AWS URL
-3. Test thoroughly with a pre-release
-4. Release the update to your users
-5. Once confirmed working, you can remove the Vercel deployment
-
-## Support
-
-For issues specific to AWS deployment, check:
-- AWS Lambda Web Adapter: https://github.com/awslabs/aws-lambda-web-adapter
-- AWS SAM documentation: https://docs.aws.amazon.com/serverless-application-model/
-
-For Hazel-specific issues, see the main README.md.

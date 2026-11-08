@@ -1,7 +1,6 @@
 # Hazel
 
-[![CircleCI](https://circleci.com/gh/vercel/hazel/tree/master.svg?style=svg)](https://circleci.com/gh/vercel/hazel/tree/master)
-[![XO code style](https://img.shields.io/badge/code_style-XO-5ed9c7.svg)](https://github.com/sindresorhus/xo)
+[![Test](https://github.com/Curvo-AI/hazel/actions/workflows/test.yml/badge.svg)](https://github.com/Curvo-AI/hazel/actions/workflows/test.yml)
 
 This project lets you deploy an update server for [Electron](https://www.electronjs.org) apps with ease: You only need to click a button.
 
@@ -25,7 +24,7 @@ Open this link in a new tab to deploy Hazel on [Vercel](https://vercel.com):
 
 ### Deploy to AWS
 
-Hazel can also be deployed to AWS Lambda using AWS SAM (Serverless Application Model). See [README-AWS.md](./README-AWS.md) for complete AWS deployment instructions.
+Hazel can also be deployed to AWS Lambda behind API Gateway. See [README-AWS.md](./README-AWS.md) for complete AWS deployment instructions.
 
 Once it's deployed, paste the deployment address into your code (please keep in mind that updates should only occur in the production version of the app, not while developing):
 
@@ -46,7 +45,7 @@ From now on, the auto updater will ask your Hazel deployment for updates!
 
 The following environment variables can be used optionally:
 
-- `INTERVAL`: Refreshes the cache every x minutes ([restrictions](https://developer.github.com/changes/2012-10-14-rate-limit-changes/)) (defaults to 15 minutes)
+- `INTERVAL`: Refreshes the cache every x minutes ([restrictions](https://developer.github.com/changes/2012-10-14-rate-limit-changes/)) (defaults to 15 minutes). If a refresh fails, Hazel keeps serving the cached release and tries again after the next interval. If nothing is cached yet, requests get a `503`.
 - `PRE`: When defined with a value of `1`, only pre-releases will be cached
 - `TOKEN`: Your GitHub token (for private repos)
 - `URL`: The server's URL (for private repos - when running on [Vercel](https://vercel.com), this field is filled with the URL of the deployment automatically)
@@ -60,6 +59,10 @@ stream from the GitHub release tag suffix:
 - `v1.2.3-production` serves production.
 - `v1.2.3-uat` serves `uat`.
 - `v1.2.3-whitelabel-sv` serves `whitelabel-sv`.
+
+Tags must be SemVer, and stream names may only contain letters, numbers, `-` and
+`_`. Releases with any other tag, such as `v1.2.3-uat.1`, are skipped so they are
+never served to production.
 
 Clients can select a stream explicitly with the `stream` query parameter. Explicit
 query selection takes precedence over inference from the client version:

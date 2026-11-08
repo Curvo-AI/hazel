@@ -1,4 +1,4 @@
-/* global describe, it, expect */
+/* global afterEach, describe, it, expect, jest */
 const createRoutes = require('../lib/routes')
 
 const createResponse = () => {
@@ -244,5 +244,83 @@ describe('Stream-aware routes', () => {
 
     expect(cache.calls).toEqual(['sv-cc'])
     expect(res.statusCode).toBe(204)
+  })
+  describe('private downloads', () => {
+    const realFetch = global.fetch
+
+    afterEach(() => {
+      global.fetch = realFetch
+    })
+
+    const privateLatest = {
+      version: '1.0.1',
+      platforms: {
+        darwin: {
+          api_url: 'https://api.github.com/repos/curvo/hazel/releases/assets/1',
+          url: 'https://github.com/curvo/hazel/releases/download/1.0.1/a.zip'
+        }
+      }
+    }
+
+    const downloadDarwin = async fetchResponse => {
+      global.fetch = jest.fn(async () => fetchResponse)
+      const routes = createRoutesForCache(
+        createCache({ production: privateLatest }),
+        { token: 'secret' }
+      )
+      const req = {
+        headers: {},
+        params: { platform: 'darwin' },
+        url: '/download/darwin?update=true'
+      }
+      const res = createResponse()
+
+      await routes.downloadPlatform(req, res)
+
+      return res
+    }
+
+    it('sends the token as a header, not in the URL', async () => {
+      const res = await downloadDarwin({
+        status: 302,
+        headers: new Headers({ Location: 'https://objects.example.com/a.zip' })
+      })
+
+      const [url, options] = global.fetch.mock.calls[0]
+
+      expect(url).toBe(privateLatest.platforms.darwin.api_url)
+      expect(url).not.toContain('secret')
+      expect(options.headers.Authorization).toBe('token secret')
+      expect(res.statusCode).toBe(302)
+      expect(res.headers.Location).toBe('https://objects.example.com/a.zip')
+    })
+
+    it('responds with 502 when GitHub does not redirect to the asset', async () => {
+      const res = await downloadDarwin({ status: 404, headers: new Headers() })
+
+      expect(res.statusCode).toBe(502)
+    })
+
+    it('responds with 502 when the GitHub request fails', async () => {
+      global.fetch = jest.fn(async () => {
+        throw new Error('network down')
+      })
+      const routes = createRoutesForCache(
+        createCache({ production: privateLatest }),
+        { token: 'secret' }
+      )
+      const res = createResponse()
+
+      await routes.downloadPlatform(
+        {
+          headers: {},
+          params: { platform: 'darwin' },
+          url: '/download/darwin?update=true'
+        },
+        res
+      )
+
+      expect(res.statusCode).toBe(502)
+    })
   })
 })

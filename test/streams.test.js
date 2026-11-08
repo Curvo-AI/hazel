@@ -37,6 +37,15 @@ describe('Streams', () => {
     expect(parseStreamFromVersion('1.2.3-beta.1')).toBe('production')
   })
 
+  it('does not assign tags with invalid prerelease streams to production', () => {
+    expect(parseStreamFromTag('v1.2.4-uat.1')).toBeNull()
+    expect(parseStreamFromTag('v1.2.4-beta.1')).toBeNull()
+  })
+
+  it('does not assign non-SemVer tags to production', () => {
+    expect(parseStreamFromTag('nightly')).toBeNull()
+  })
+
   it('validates stream query values', () => {
     expect(validateStream('uat')).toBe(true)
     expect(validateStream('whitelabel-sv')).toBe(true)

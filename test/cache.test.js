@@ -71,9 +71,9 @@ describe('Cache', () => {
 })
 
 describe('stream-aware Cache', () => {
-  const loadMockedCache = pages => {
-    jest.resetModules()
+  const realFetch = global.fetch
 
+  const loadMockedCache = pages => {
     const fetch = jest.fn(async url => {
       const page = Number(new URL(url).searchParams.get('page'))
 
@@ -83,12 +83,9 @@ describe('stream-aware Cache', () => {
       }
     })
 
-    jest.doMock('node-fetch', () => fetch)
+    global.fetch = fetch
 
-    return {
-      Cache: require('../lib/cache'),
-      fetch
-    }
+    return { Cache, fetch }
   }
 
   const release = (tagName, publishedAt) => ({
@@ -116,7 +113,7 @@ describe('stream-aware Cache', () => {
   })
 
   afterEach(() => {
-    jest.dontMock('node-fetch')
+    global.fetch = realFetch
   })
 
   it('returns the latest cached release per stream', async () => {
@@ -205,5 +202,91 @@ describe('stream-aware Cache', () => {
 
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(uat.version).toBe('4.0.0-uat')
+  })
+
+  it('skips releases whose tag has an invalid stream suffix', async () => {
+    const { Cache } = loadMockedCache([
+      [
+        release('v1.2.4-uat.1', '2024-05-02T00:00:00Z'),
+        release('v1.2.3', '2024-05-01T00:00:00Z')
+      ]
+    ])
+    const cache = new Cache({ account: 'zeit', repository: 'hyper' })
+
+    const production = await cache.loadCache()
+
+    expect(production.version).toBe('v1.2.3')
+    expect(Object.keys(cache.latestByStream)).toEqual(['production'])
+  })
+
+  it('shares one GitHub refresh between concurrent requests', async () => {
+    const { Cache, fetch } = loadMockedCache([
+      [release('3.0.0', '2024-04-01T00:00:00Z')]
+    ])
+    const cache = new Cache({ account: 'zeit', repository: 'hyper' })
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => cache.loadCache())
+    )
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(results.every(result => result.version === '3.0.0')).toBe(true)
+  })
+
+  it('serves stale data when a refresh fails', async () => {
+    const { Cache, fetch } = loadMockedCache([
+      [release('3.0.0', '2024-04-01T00:00:00Z')]
+    ])
+    const cache = new Cache({ account: 'zeit', repository: 'hyper' })
+
+    await cache.loadCache()
+    cache.lastUpdate = 1
+    fetch.mockImplementation(async () => ({ status: 403 }))
+
+    await expect(cache.loadCache()).resolves.toMatchObject({
+      version: '3.0.0'
+    })
+    expect(cache.isOutdated()).toBe(false)
+
+    await cache.loadCache()
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the RELEASES file byte for byte, including the BOM', async () => {
+    const releases = '\uFEFFABC123 App-1.0.0-full.nupkg 100'
+    global.fetch = jest.fn(async url => {
+      if (url.endsWith('/RELEASES')) {
+        return new Response(releases, { status: 200 })
+      }
+
+      const page = Number(new URL(url).searchParams.get('page'))
+      const assets = [
+        {
+          name: 'RELEASES',
+          browser_download_url: 'https://example.com/1.0.0/RELEASES',
+          url: 'https://api.example.com/assets/1',
+          size: 1
+        }
+      ]
+
+      return new Response(
+        JSON.stringify(page === 1 ? [Object.assign(release('1.0.0'), { assets })] : []),
+        { status: 200 }
+      )
+    })
+    const cache = new Cache({ account: 'zeit', repository: 'hyper' })
+
+    const production = await cache.loadCache()
+
+    expect(production.files.RELEASES).toBe(releases)
+  })
+
+  it('rejects when the first refresh fails', async () => {
+    const { Cache, fetch } = loadMockedCache([])
+    fetch.mockImplementation(async () => ({ status: 403 }))
+    const cache = new Cache({ account: 'zeit', repository: 'hyper' })
+
+    await expect(cache.loadCache()).rejects.toThrow('403')
+    expect(cache.lastUpdate).toBeNull()
   })
 })
