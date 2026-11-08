@@ -90,28 +90,44 @@ else
   aws cloudformation wait stack-create-complete --stack-name "$stack" --region "$region"
 fi
 
-url="$(aws cloudformation describe-stacks --stack-name "$stack" --region "$region" \
-  --query "Stacks[0].Outputs[?OutputKey=='HazelUrl'].OutputValue" --output text)"
+# Every URL the stack serves: the execute-api URL installed Companions have
+# built in, plus the custom domain when one is set. Read after each deploy,
+# because a rollback can remove the domain.
+stack_urls() {
+  aws cloudformation describe-stacks --stack-name "$stack" --region "$region" \
+    --query "Stacks[0].Outputs[?OutputKey=='HazelUrl' || OutputKey=='CustomDomainUrl'].OutputValue" \
+    --output text | tr '\t' '\n'
+}
 
 # Only a 200 proves the new image loaded release data. A 503 can mean a bad
 # token or SSM config as well as a GitHub outage, so it fails the check; during
 # an outage the deploy rolls back and can be retried. The first request is a
-# cold start that loads releases from GitHub, so allow a few attempts.
+# cold start and a new domain can take a minute to resolve, so allow several
+# attempts per URL.
 healthy() {
-  local status
-  for _ in 1 2 3; do
-    status="$(curl -s -o /dev/null --max-time 30 -w '%{http_code}' "$url" || true)"
-    if [ "$status" = 200 ]; then
-      return 0
+  local url status
+  while read -r url; do
+    if [ -z "$url" ]; then
+      continue
     fi
-    sleep 5
-  done
-  echo "$url returned $status" >&2
-  return 1
+    status=''
+    for _ in 1 2 3 4 5 6; do
+      status="$(curl -s -o /dev/null --max-time 30 -w '%{http_code}' "$url" || true)"
+      if [ "$status" = 200 ]; then
+        break
+      fi
+      sleep 10
+    done
+    if [ "$status" != 200 ]; then
+      echo "$url returned ${status:-no response}" >&2
+      return 1
+    fi
+    echo "Smoke check passed: $url"
+  done < <(stack_urls)
 }
 
 if healthy; then
-  echo "Deployed $tag ($image) to $stack: $url"
+  echo "Deployed $tag ($image) to $stack"
   exit 0
 fi
 
